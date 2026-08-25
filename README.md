@@ -12,8 +12,8 @@ It only:
 - preserves every existing assignment verbatim;
 - writes changes atomically and preserves file permission bits.
 
-The project is written in portable C11 for Linux. Its Makefile produces a
-dynamically linked, size-optimized, stripped executable.
+The project is written in portable C11 and supports Linux, macOS, and Windows.
+Release builds are optimized for size.
 
 ## Example
 
@@ -52,18 +52,46 @@ existing keys.
 
 Requirements:
 
-- Linux;
-- a C11 compiler such as GCC or Clang;
-- GNU Make and standard POSIX command-line tools.
+- CMake 3.20 or newer;
+- a C11 compiler: GCC or Clang on Linux, Apple Clang on macOS, or MSVC on
+  Windows.
+
+Linux and macOS:
+
+```bash
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build
+ctest --test-dir build --output-on-failure
+```
+
+Windows with Visual Studio Build Tools, from PowerShell:
+
+```powershell
+cmake -S . -B build
+cmake --build build --config Release
+ctest --test-dir build -C Release --output-on-failure
+```
+
+The Windows executable is created at `build/Release/envdiff.exe`. With a
+single-configuration Unix generator, the executable is `build/envdiff`.
+
+On Linux and macOS, Make remains available as a convenience:
 
 ```bash
 make
+make check
 ```
 
 The Makefile prints the resulting size for information. Do not add `-static` if
 keeping the executable small matters: a statically linked libc is much larger.
 
-Install to `~/.local/bin`:
+Install the CMake build using its configured prefix:
+
+```bash
+cmake --install build
+```
+
+Alternatively, install the Make build to `~/.local/bin`:
 
 ```bash
 make install
@@ -111,14 +139,18 @@ Duplicate keys in either file are treated as errors. Both `KEY=value` and
 `export KEY=value` assignments are recognized. The output keeps the working
 file's LF or CRLF line-ending style.
 
+## Automated builds
+
+CI compiles and tests the project with GCC and Clang on Linux, Apple Clang on
+macOS, and MSVC on Windows. Every CI run uploads packaged executables as workflow
+artifacts.
+
+Pushing a version tag such as `v0.1.0` builds all three platform archives and
+creates or updates the corresponding GitHub release.
+
 ## Development
 
-```bash
-make check
-```
-
-CI builds and tests the project with both GCC and Clang. See
-[CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidelines.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidelines.
 
 ## License
 

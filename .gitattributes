@@ -1,5 +1,7 @@
 * text=auto eol=lf
 
 *.c text diff=cpp
+CMakeLists.txt text
+*.cmake text
 Makefile text
 test.sh text eol=lf

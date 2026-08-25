@@ -1,6 +1,12 @@
 /envdiff
+/envdiff.exe
+/build/
+/dist/
+.vs/
 *.o
 *.swp
 *.swo
 .DS_Store
+CMakeCache.txt
+CMakeFiles/
 compile_commands.json

@@ -1,41 +1,36 @@
-name: CI
+name: Release
 
 on:
   push:
-  pull_request:
-  workflow_dispatch:
+    tags:
+      - "v*"
 
 permissions:
   contents: read
 
 jobs:
-  build-and-test:
+  build:
     name: ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          - name: linux-gcc
+          - name: linux
             os: ubuntu-latest
             cmake_args: -DCMAKE_C_COMPILER=gcc
             executable: build/envdiff
-            archive: envdiff-linux-gcc.tar.gz
-          - name: linux-clang
-            os: ubuntu-latest
-            cmake_args: -DCMAKE_C_COMPILER=clang
-            executable: build/envdiff
-            archive: envdiff-linux-clang.tar.gz
-          - name: macos-clang
+            archive: envdiff-${{ github.ref_name }}-linux.tar.gz
+          - name: macos
             os: macos-latest
             cmake_args: -DCMAKE_C_COMPILER=clang
             executable: build/envdiff
-            archive: envdiff-macos-clang.tar.gz
-          - name: windows-msvc
+            archive: envdiff-${{ github.ref_name }}-macos.tar.gz
+          - name: windows
             os: windows-latest
             cmake_args: ""
             executable: build/Release/envdiff.exe
-            archive: envdiff-windows-msvc.zip
+            archive: envdiff-${{ github.ref_name }}-windows.zip
 
     steps:
       - name: Check out repository
@@ -66,9 +61,34 @@ jobs:
           Copy-Item "${{ matrix.executable }}", README.md, LICENSE dist/package/
           Compress-Archive -Path dist/package/* -DestinationPath "dist/${{ matrix.archive }}"
 
-      - name: Upload build artifact
+      - name: Upload release artifact
         uses: actions/upload-artifact@v7
         with:
           name: envdiff-${{ matrix.name }}
           path: dist/${{ matrix.archive }}
           if-no-files-found: error
+
+  publish:
+    name: Publish GitHub release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download release artifacts
+        uses: actions/download-artifact@v8
+        with:
+          pattern: envdiff-*
+          path: dist
+          merge-multiple: true
+
+      - name: Create or update release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          if ! gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release create "$GITHUB_REF_NAME" --generate-notes --verify-tag
+          fi
+          gh release upload "$GITHUB_REF_NAME" dist/* --clobber

@@ -7,6 +7,18 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## Unreleased
 
+### Added
+
+- Native Windows and macOS support.
+- CMake builds and cross-platform integration tests.
+- CI artifacts for Linux, macOS, and Windows.
+- Automated multi-platform GitHub releases for version tags.
+
+### Changed
+
+- File reading no longer depends on the POSIX `getline` function.
+- Atomic replacement now uses the native Windows `ReplaceFile` API on Windows.
+
 ## 0.1.0 - 2026-08-25
 
 ### Added

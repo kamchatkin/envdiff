@@ -1,8 +1,15 @@
 CC ?= cc
 VERSION ?= 0.1.0
-CPPFLAGS += -D_POSIX_C_SOURCE=200809L -D_FORTIFY_SOURCE=2 -DENVDIFF_VERSION=\"$(VERSION)\"
+CPPFLAGS += -DENVDIFF_VERSION=\"$(VERSION)\"
 CFLAGS += -std=c11 -Os -Wall -Wextra -Wpedantic -ffunction-sections -fdata-sections -fstack-protector-strong
+
+UNAME_S := $(shell uname -s)
+ifeq ($(UNAME_S),Darwin)
+LDFLAGS += -Wl,-dead_strip -Wl,-x
+else
+CPPFLAGS += -D_FORTIFY_SOURCE=2
 LDFLAGS += -Wl,--gc-sections -Wl,-s
+endif
 
 PREFIX ?= $(HOME)/.local
 
@@ -20,7 +27,8 @@ check: envdiff
 test: check
 
 install: envdiff
-	install -Dm755 envdiff "$(DESTDIR)$(PREFIX)/bin/envdiff"
+	mkdir -p "$(DESTDIR)$(PREFIX)/bin"
+	install -m 755 envdiff "$(DESTDIR)$(PREFIX)/bin/envdiff"
 
 uninstall:
 	$(RM) "$(DESTDIR)$(PREFIX)/bin/envdiff"

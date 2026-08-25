@@ -1,4 +1,6 @@
+#ifndef _WIN32
 #define _POSIX_C_SOURCE 200809L
+#endif
 
 #include <ctype.h>
 #include <errno.h>
@@ -7,9 +9,16 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+#ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#include <io.h>
+#include <windows.h>
+#else
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
+#endif
 
 #ifndef ENVDIFF_VERSION
 #define ENVDIFF_VERSION "0.1.0"
@@ -32,6 +41,18 @@ typedef struct {
     size_t length;
     size_t capacity;
 } Entries;
+
+typedef struct {
+#ifdef _WIN32
+    DWORD volume_serial;
+    DWORD file_index_high;
+    DWORD file_index_low;
+#else
+    dev_t device;
+    ino_t inode;
+    mode_t mode;
+#endif
+} FileInfo;
 
 static void out_of_memory(void)
 {
@@ -233,37 +254,62 @@ static bool read_lines(const char *path, Strings *lines, int *newline_style)
         return false;
     }
 
-    char *buffer = NULL;
+    char *content = NULL;
+    size_t length = 0;
     size_t capacity = 0;
-    ssize_t length;
-    while ((length = getline(&buffer, &capacity, file)) >= 0) {
-        if (memchr(buffer, '\0', (size_t)length) != NULL) {
-            fprintf(stderr, "envdiff: %s contains a NUL byte\n", path);
-            free(buffer);
-            fclose(file);
-            return false;
-        }
-        if (length > 0 && buffer[length - 1] == '\n') {
-            length--;
-            int style = 1;
-            if (length > 0 && buffer[length - 1] == '\r') {
-                length--;
-                style = 2;
+    unsigned char chunk[4096];
+    size_t received;
+    while ((received = fread(chunk, 1, sizeof(chunk), file)) > 0) {
+        if (length + received + 1 > capacity) {
+            size_t next_capacity = capacity == 0 ? 8192 : capacity;
+            while (next_capacity < length + received + 1) {
+                next_capacity *= 2;
             }
-            if (*newline_style == 0) {
-                *newline_style = style;
-            }
+            content = xrealloc(content, next_capacity);
+            capacity = next_capacity;
         }
-        strings_push_owned(lines, xstrndup(buffer, (size_t)length));
+        memcpy(content + length, chunk, received);
+        length += received;
     }
 
     bool success = !ferror(file);
     if (!success) {
         fprintf(stderr, "envdiff: failed to read %s: %s\n", path, strerror(errno));
     }
-    free(buffer);
     fclose(file);
-    return success;
+    if (!success) {
+        free(content);
+        return false;
+    }
+    if (length > 0 && memchr(content, '\0', length) != NULL) {
+        fprintf(stderr, "envdiff: %s contains a NUL byte\n", path);
+        free(content);
+        return false;
+    }
+
+    size_t start = 0;
+    for (size_t index = 0; index < length; index++) {
+        if (content[index] != '\n') {
+            continue;
+        }
+        size_t end = index;
+        int style = 1;
+        if (end > start && content[end - 1] == '\r') {
+            end--;
+            style = 2;
+        }
+        if (*newline_style == 0) {
+            *newline_style = style;
+        }
+        strings_push_owned(lines, xstrndup(content + start, end - start));
+        start = index + 1;
+    }
+    if (start < length) {
+        strings_push_owned(lines, xstrndup(content + start, length - start));
+    }
+
+    free(content);
+    return true;
 }
 
 static ptrdiff_t entry_index(const Entries *entries, const char *key)
@@ -429,32 +475,133 @@ static void merge_env(
     strings_clear(&known_comments);
 }
 
-static char *directory_name(const char *path)
+static const char *last_path_separator(const char *path)
 {
     const char *slash = strrchr(path, '/');
+#ifdef _WIN32
+    const char *backslash = strrchr(path, '\\');
+    if (backslash != NULL && (slash == NULL || backslash > slash)) {
+        slash = backslash;
+    }
+#endif
+    return slash;
+}
+
+static char *directory_name(const char *path)
+{
+    const char *slash = last_path_separator(path);
     if (slash == NULL) {
         return xstrdup(".");
     }
     if (slash == path) {
         return xstrdup("/");
     }
+#ifdef _WIN32
+    if (slash == path + 2 && path[1] == ':') {
+        return xstrndup(path, 3);
+    }
+#endif
     return xstrndup(path, (size_t)(slash - path));
 }
 
+#ifndef _WIN32
 static const char *base_name(const char *path)
 {
-    const char *slash = strrchr(path, '/');
+    const char *slash = last_path_separator(path);
     return slash == NULL ? path : slash + 1;
+}
+#endif
+
+static bool read_file_info(const char *path, FileInfo *info)
+{
+#ifdef _WIN32
+    HANDLE file = CreateFileA(
+        path,
+        FILE_READ_ATTRIBUTES,
+        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+        NULL,
+        OPEN_EXISTING,
+        FILE_ATTRIBUTE_NORMAL,
+        NULL
+    );
+    if (file == INVALID_HANDLE_VALUE) {
+        fprintf(stderr, "envdiff: failed to inspect %s: Windows error %lu\n", path, GetLastError());
+        return false;
+    }
+
+    BY_HANDLE_FILE_INFORMATION details;
+    if (!GetFileInformationByHandle(file, &details)) {
+        DWORD error = GetLastError();
+        CloseHandle(file);
+        fprintf(stderr, "envdiff: failed to inspect %s: Windows error %lu\n", path, error);
+        return false;
+    }
+    CloseHandle(file);
+    if ((details.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0) {
+        fprintf(stderr, "envdiff: %s is not a regular file\n", path);
+        return false;
+    }
+
+    info->volume_serial = details.dwVolumeSerialNumber;
+    info->file_index_high = details.nFileIndexHigh;
+    info->file_index_low = details.nFileIndexLow;
+#else
+    struct stat details;
+    if (stat(path, &details) != 0) {
+        fprintf(stderr, "envdiff: failed to inspect %s: %s\n", path, strerror(errno));
+        return false;
+    }
+    if (!S_ISREG(details.st_mode)) {
+        fprintf(stderr, "envdiff: %s is not a regular file\n", path);
+        return false;
+    }
+
+    info->device = details.st_dev;
+    info->inode = details.st_ino;
+    info->mode = details.st_mode;
+#endif
+    return true;
+}
+
+static bool same_file(const FileInfo *first, const FileInfo *second)
+{
+#ifdef _WIN32
+    return first->volume_serial == second->volume_serial
+        && first->file_index_high == second->file_index_high
+        && first->file_index_low == second->file_index_low;
+#else
+    return first->device == second->device && first->inode == second->inode;
+#endif
 }
 
 static bool write_atomic(
     const char *path,
     const Strings *lines,
     const char *newline,
-    mode_t mode
+    const FileInfo *current_info
 )
 {
     char *directory = directory_name(path);
+#ifdef _WIN32
+    (void)current_info;
+    char temporary_buffer[MAX_PATH + 1];
+    if (GetTempFileNameA(directory, "env", 0, temporary_buffer) == 0) {
+        DWORD error = GetLastError();
+        fprintf(stderr, "envdiff: failed to create temporary file: Windows error %lu\n", error);
+        free(directory);
+        return false;
+    }
+    char *temporary_path = xstrdup(temporary_buffer);
+    free(directory);
+
+    FILE *file = fopen(temporary_path, "wb");
+    if (file == NULL) {
+        fprintf(stderr, "envdiff: failed to open temporary file: %s\n", strerror(errno));
+        DeleteFileA(temporary_path);
+        free(temporary_path);
+        return false;
+    }
+#else
     const char *base = base_name(path);
     size_t template_length = strlen(directory) + strlen(base) + 20;
     char *temporary_path = malloc(template_length);
@@ -471,7 +618,7 @@ static bool write_atomic(
         free(temporary_path);
         return false;
     }
-    if (fchmod(descriptor, mode) != 0) {
+    if (fchmod(descriptor, current_info->mode & 07777) != 0) {
         fprintf(stderr, "envdiff: failed to set temporary file permissions: %s\n", strerror(errno));
         close(descriptor);
         unlink(temporary_path);
@@ -487,6 +634,7 @@ static bool write_atomic(
         free(temporary_path);
         return false;
     }
+#endif
 
     bool success = true;
     for (size_t index = 0; index < lines->length; index++) {
@@ -498,7 +646,11 @@ static bool write_atomic(
     if (success && fflush(file) != 0) {
         success = false;
     }
-    if (success && fsync(descriptor) != 0) {
+#ifdef _WIN32
+    if (success && _commit(_fileno(file)) != 0) {
+#else
+    if (success && fsync(fileno(file)) != 0) {
+#endif
         success = false;
     }
     if (fclose(file) != 0) {
@@ -507,16 +659,30 @@ static bool write_atomic(
 
     if (!success) {
         fprintf(stderr, "envdiff: failed to write temporary file: %s\n", strerror(errno));
+#ifdef _WIN32
+        DeleteFileA(temporary_path);
+#else
         unlink(temporary_path);
+#endif
         free(temporary_path);
         return false;
     }
+#ifdef _WIN32
+    if (!ReplaceFileA(path, temporary_path, NULL, REPLACEFILE_WRITE_THROUGH, NULL, NULL)) {
+        DWORD error = GetLastError();
+        fprintf(stderr, "envdiff: failed to replace current env file: Windows error %lu\n", error);
+        DeleteFileA(temporary_path);
+        free(temporary_path);
+        return false;
+    }
+#else
     if (rename(temporary_path, path) != 0) {
         fprintf(stderr, "envdiff: failed to replace current env file: %s\n", strerror(errno));
         unlink(temporary_path);
         free(temporary_path);
         return false;
     }
+#endif
 
     free(temporary_path);
     return true;
@@ -560,17 +726,13 @@ int main(int argc, char **argv)
         return 2;
     }
 
-    struct stat example_stat;
-    struct stat current_stat;
-    if (stat(paths[0], &example_stat) != 0) {
-        fprintf(stderr, "envdiff: failed to stat %s: %s\n", paths[0], strerror(errno));
+    FileInfo example_info;
+    FileInfo current_info;
+    if (!read_file_info(paths[0], &example_info)
+        || !read_file_info(paths[1], &current_info)) {
         return 2;
     }
-    if (stat(paths[1], &current_stat) != 0) {
-        fprintf(stderr, "envdiff: failed to stat %s: %s\n", paths[1], strerror(errno));
-        return 2;
-    }
-    if (example_stat.st_dev == current_stat.st_dev && example_stat.st_ino == current_stat.st_ino) {
+    if (same_file(&example_info, &current_info)) {
         fputs("envdiff: example and current env must be different files\n", stderr);
         return 2;
     }
@@ -611,7 +773,7 @@ int main(int argc, char **argv)
     } else {
         int newline_style = current_newline != 0 ? current_newline : example_newline;
         const char *newline = newline_style == 2 ? "\r\n" : "\n";
-        if (!write_atomic(paths[1], &current_lines, newline, current_stat.st_mode & 07777)) {
+        if (!write_atomic(paths[1], &current_lines, newline, &current_info)) {
             result = 2;
         } else {
             printf("added keys: %zu, comments: %zu\n", added_keys, added_comments);
