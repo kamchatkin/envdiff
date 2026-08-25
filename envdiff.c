@@ -22,7 +22,7 @@
 #endif
 
 #ifndef ENVDIFF_VERSION
-#define ENVDIFF_VERSION "0.3.0"
+#define ENVDIFF_VERSION "0.4.0"
 #endif
 
 typedef struct {
@@ -610,6 +610,33 @@ static const char *last_path_separator(const char *path)
     return slash;
 }
 
+static bool filename_contains_example(const char *path)
+{
+    static const char needle[] = "example";
+    const char *separator = last_path_separator(path);
+    const char *filename = separator == NULL ? path : separator + 1;
+    size_t filename_length = strlen(filename);
+    size_t needle_length = sizeof(needle) - 1;
+
+    for (size_t start = 0; start + needle_length <= filename_length; start++) {
+        bool matches = true;
+        for (size_t index = 0; index < needle_length; index++) {
+            unsigned char character = (unsigned char)filename[start + index];
+            if (character >= 'A' && character <= 'Z') {
+                character = (unsigned char)(character - 'A' + 'a');
+            }
+            if (character != (unsigned char)needle[index]) {
+                matches = false;
+                break;
+            }
+        }
+        if (matches) {
+            return true;
+        }
+    }
+    return false;
+}
+
 static char *directory_name(const char *path)
 {
     const char *slash = last_path_separator(path);
@@ -844,12 +871,18 @@ static bool write_atomic(
 
 static void usage(FILE *stream)
 {
-    fputs("Usage: envdiff [--check] [-o FILE] <example.env> <current.env>\n", stream);
+    fputs(
+        "Usage: envdiff [-c] [-f] "
+        "[-i | -o FILE] <example.env> <current.env>\n",
+        stream
+    );
     fputs("Writes the merged environment to standard output by default.\n", stream);
     fputs("Existing values are never extracted, compared, or changed.\n", stream);
     fputs("\nOptions:\n", stream);
     fputs("  -o, --output FILE  Atomically write the result to FILE\n", stream);
-    fputs("      --check        Show the structural difference without writing files\n", stream);
+    fputs("  -i, --in-place     Atomically update the current file\n", stream);
+    fputs("  -c, --check        Show the structural difference without writing files\n", stream);
+    fputs("  -f, --force        Allow 'example' in the current file name\n", stream);
     fputs("  -h, --help         Show this help\n", stream);
     fputs("  -V, --version      Show the version\n", stream);
 }
@@ -857,6 +890,8 @@ static void usage(FILE *stream)
 int main(int argc, char **argv)
 {
     bool check = false;
+    bool force = false;
+    bool in_place = false;
     bool parse_options = true;
     const char *output_path = NULL;
     const char *paths[2] = {0};
@@ -865,8 +900,16 @@ int main(int argc, char **argv)
     for (int index = 1; index < argc; index++) {
         if (parse_options && strcmp(argv[index], "--") == 0) {
             parse_options = false;
-        } else if (parse_options && strcmp(argv[index], "--check") == 0) {
+        } else if (parse_options
+            && (strcmp(argv[index], "-c") == 0 || strcmp(argv[index], "--check") == 0)) {
             check = true;
+        } else if (parse_options
+            && (strcmp(argv[index], "-f") == 0 || strcmp(argv[index], "--force") == 0)) {
+            force = true;
+        } else if (parse_options
+            && (strcmp(argv[index], "-i") == 0
+                || strcmp(argv[index], "--in-place") == 0)) {
+            in_place = true;
         } else if (parse_options
             && (strcmp(argv[index], "-o") == 0 || strcmp(argv[index], "--output") == 0)) {
             if (output_path != NULL) {
@@ -919,6 +962,29 @@ int main(int argc, char **argv)
     if (check && output_path != NULL) {
         fputs("envdiff: --check and --output cannot be used together\n", stderr);
         return 2;
+    }
+    if (check && in_place) {
+        fputs("envdiff: --check and --in-place cannot be used together\n", stderr);
+        return 2;
+    }
+    if (in_place && output_path != NULL) {
+        fputs("envdiff: --in-place and --output cannot be used together\n", stderr);
+        return 2;
+    }
+    if (!force && filename_contains_example(paths[1])) {
+        fprintf(
+            stderr,
+            "envdiff: current file name contains 'example': %s\n",
+            paths[1]
+        );
+        fputs(
+            "envdiff: refusing to continue; use -f or --force to override\n",
+            stderr
+        );
+        return 2;
+    }
+    if (in_place) {
+        output_path = paths[1];
     }
 
     FileInfo example_info;

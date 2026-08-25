@@ -7,6 +7,17 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## Unreleased
 
+## 0.4.0 - 2026-08-25
+
+### Added
+
+- `-c` as a short alias for `--check`.
+- `-i`/`--in-place` as shorthand for atomically updating the current file.
+- A safety check that rejects current file names containing `example`, with an
+  explicit `-f`/`--force` override for intentional use.
+
+## 0.3.0 - 2026-08-25
+
 ### Added
 
 - Detailed `--check` output with complete example assignments, redacted

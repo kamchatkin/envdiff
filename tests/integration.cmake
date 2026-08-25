@@ -11,6 +11,7 @@ file(MAKE_DIRECTORY "${TEST_DIRECTORY}")
 
 set(example "${TEST_DIRECTORY}/example.env")
 set(current "${TEST_DIRECTORY}/current.env")
+set(example_named_current "${TEST_DIRECTORY}/current.Example.env")
 set(expected "${TEST_DIRECTORY}/expected.env")
 set(output "${TEST_DIRECTORY}/output.env")
 
@@ -26,6 +27,10 @@ file(WRITE "${current}"
     "SERVICE_URL=https://private.invalid\n"
     "LOCAL_SECRET=keep-this-value\n"
 )
+file(WRITE "${example_named_current}"
+    "SERVICE_URL=https://private.invalid\n"
+    "LOCAL_SECRET=keep-this-value\n"
+)
 file(WRITE "${expected}"
     "# Service endpoint\n"
     "SERVICE_URL=https://private.invalid\n"
@@ -33,6 +38,33 @@ file(WRITE "${expected}"
     "# Request timeout\n"
     "SERVICE_TIMEOUT=30\n"
 )
+
+execute_process(
+    COMMAND "${ENVDIFF_EXECUTABLE}" "${example}" "${example_named_current}"
+    RESULT_VARIABLE example_name_guard_result
+    OUTPUT_VARIABLE example_name_guard_output
+    ERROR_VARIABLE example_name_guard_error
+)
+string(FIND "${example_name_guard_error}" "--force" safety_hint_index)
+if(NOT example_name_guard_result EQUAL 2
+    OR NOT example_name_guard_output STREQUAL ""
+    OR safety_hint_index EQUAL -1)
+    message(FATAL_ERROR "Current example-name guard failed")
+endif()
+
+execute_process(
+    COMMAND "${ENVDIFF_EXECUTABLE}" --force
+        "${example}" "${example_named_current}"
+    RESULT_VARIABLE example_name_override_result
+    OUTPUT_VARIABLE example_name_override_output
+    ERROR_VARIABLE example_name_override_error
+)
+file(READ "${expected}" expected_override_content)
+if(NOT example_name_override_result EQUAL 0
+    OR NOT example_name_override_output STREQUAL expected_override_content
+    OR NOT example_name_override_error STREQUAL "")
+    message(FATAL_ERROR "Current example-name override failed")
+endif()
 
 execute_process(
     COMMAND "${ENVDIFF_EXECUTABLE}" --version
@@ -47,7 +79,7 @@ if(NOT version_result EQUAL 0
 endif()
 
 execute_process(
-    COMMAND "${ENVDIFF_EXECUTABLE}" --check "${example}" "${current}"
+    COMMAND "${ENVDIFF_EXECUTABLE}" "${example}" "${current}" -c
     RESULT_VARIABLE check_before_result
     OUTPUT_VARIABLE check_before_output
     ERROR_VARIABLE check_before_error
@@ -113,7 +145,7 @@ if(NOT output_content STREQUAL expected_content)
 endif()
 
 execute_process(
-    COMMAND "${ENVDIFF_EXECUTABLE}" -o "${current}" "${example}" "${current}"
+    COMMAND "${ENVDIFF_EXECUTABLE}" "${example}" "${current}" -i
     RESULT_VARIABLE inplace_result
     OUTPUT_VARIABLE inplace_stdout
     ERROR_VARIABLE inplace_error
@@ -171,6 +203,27 @@ execute_process(
 )
 if(NOT invalid_options_result EQUAL 2)
     message(FATAL_ERROR "Invalid option combination returned ${invalid_options_result}")
+endif()
+
+execute_process(
+    COMMAND "${ENVDIFF_EXECUTABLE}" "${example}" "${current}" --check -i
+    RESULT_VARIABLE check_in_place_result
+    OUTPUT_VARIABLE check_in_place_output
+    ERROR_VARIABLE check_in_place_error
+)
+if(NOT check_in_place_result EQUAL 2)
+    message(FATAL_ERROR "Check accepted in-place output")
+endif()
+
+execute_process(
+    COMMAND "${ENVDIFF_EXECUTABLE}" "${example}" "${current}"
+        -i -o "${output}"
+    RESULT_VARIABLE conflicting_outputs_result
+    OUTPUT_VARIABLE conflicting_outputs_output
+    ERROR_VARIABLE conflicting_outputs_error
+)
+if(NOT conflicting_outputs_result EQUAL 2)
+    message(FATAL_ERROR "In-place mode accepted an explicit output file")
 endif()
 
 file(WRITE "${example}" "DUPLICATE=one\nDUPLICATE=two\n")

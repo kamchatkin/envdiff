@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.20)
 
-project(envdiff VERSION 0.3.0 LANGUAGES C)
+project(envdiff VERSION 0.4.0 LANGUAGES C)
 
 add_executable(envdiff envdiff.c)
 set_target_properties(envdiff PROPERTIES

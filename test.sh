@@ -6,6 +6,7 @@ trap 'rm -rf -- "$test_dir"' EXIT HUP INT TERM
 
 example="$test_dir/example.env"
 current="$test_dir/current.env"
+example_named_current="$test_dir/current.EXAMPLE.env"
 expected="$test_dir/expected.env"
 filtered="$test_dir/filtered.env"
 output="$test_dir/output.env"
@@ -15,7 +16,7 @@ check_error="$test_dir/check.err"
 expected_check="$test_dir/expected-check.out"
 
 version="$(./envdiff --version)"
-if [ "$version" != 'envdiff 0.3.0' ]; then
+if [ "$version" != 'envdiff 0.4.0' ]; then
     echo "unexpected version: $version" >&2
     exit 1
 fi
@@ -31,6 +32,7 @@ printf '%s\n' \
     'NATS_URL=nats://private-host:4222' \
     'NATS_PASSWORD=do-not-touch' > "$current"
 cp "$current" "$original"
+cp "$current" "$example_named_current"
 
 printf '%s\n' \
     '# NATS' \
@@ -39,7 +41,24 @@ printf '%s\n' \
     '# CA certificate' \
     'NATS_TLS_CA_FILE=/etc/nats/certs/ca.crt' > "$expected"
 
-if ./envdiff --check "$example" "$current" > "$check_output" 2> "$check_error"; then
+if ./envdiff "$example" "$example_named_current" > "$check_output" 2> "$check_error"; then
+    echo "current file containing 'example' was not rejected" >&2
+    exit 1
+else
+    status=$?
+    if [ "$status" -ne 2 ]; then
+        echo "example-name guard returned unexpected status $status" >&2
+        exit 1
+    fi
+fi
+if [ -s "$check_output" ] || ! grep -F -- '--force' "$check_error" >/dev/null; then
+    echo "example-name guard did not produce the expected diagnostic" >&2
+    exit 1
+fi
+./envdiff -f "$example" "$example_named_current" > "$filtered"
+cmp "$expected" "$filtered"
+
+if ./envdiff "$example" "$current" -c > "$check_output" 2> "$check_error"; then
     echo 'envdiff --check did not report missing keys' >&2
     exit 1
 else
@@ -76,7 +95,7 @@ cmp "$original" "$current"
 cmp "$expected" "$output"
 cmp "$original" "$current"
 
-./envdiff -o "$current" "$example" "$current"
+./envdiff "$example" "$current" -i
 cmp "$expected" "$current"
 
 if ./envdiff --check "$example" "$current" > "$check_output" 2> "$check_error"; then
@@ -125,6 +144,28 @@ else
     status=$?
     if [ "$status" -ne 2 ]; then
         echo "invalid option combination returned unexpected status $status" >&2
+        exit 1
+    fi
+fi
+
+if ./envdiff "$example" "$current" --check -i 2>/dev/null; then
+    echo '--check accepted --in-place' >&2
+    exit 1
+else
+    status=$?
+    if [ "$status" -ne 2 ]; then
+        echo "invalid in-place combination returned unexpected status $status" >&2
+        exit 1
+    fi
+fi
+
+if ./envdiff "$example" "$current" -i -o "$output" 2>/dev/null; then
+    echo '--in-place accepted --output' >&2
+    exit 1
+else
+    status=$?
+    if [ "$status" -ne 2 ]; then
+        echo "conflicting output modes returned unexpected status $status" >&2
         exit 1
     fi
 fi

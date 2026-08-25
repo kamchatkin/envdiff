@@ -109,13 +109,23 @@ make install PREFIX=/usr/local
 ## Usage
 
 ```text
-envdiff [--check] [-o FILE] <example.env> <current.env>
+envdiff [-c] [-f] [-i | -o FILE] <example.env> <current.env>
 ```
 
 The two positional arguments always have the same order:
 
 1. `<example.env>` is the template containing the expected keys and comments;
 2. `<current.env>` is the working file whose existing values are preserved.
+
+As a safety check, `envdiff` refuses to use a file whose base name contains
+`example` (case-insensitively) as `<current.env>`. This usually means that the
+positional arguments were reversed or that two example files were supplied.
+Directory names are ignored by this check. Use `-f` or `--force` to override it
+when such a current file name is intentional:
+
+```bash
+envdiff -f template.env current.example.env
+```
 
 `FILE` following `-o` or `--output` is an option argument: it is the output
 destination, not one of the two positional arguments. Options may appear before
@@ -138,12 +148,16 @@ envdiff .env.gateway.example .env.gateway > .env.gateway.merged
 Atomically update the working file:
 
 ```bash
-envdiff .env.gateway.example .env.gateway -o .env.gateway
+envdiff .env.gateway.example .env.gateway -i
 ```
 
-Here `.env.gateway` appears twice: first as the working input and then as the
-output destination. `envdiff` reads it completely before replacing it
-atomically.
+`-i`/`--in-place` is shorthand for selecting the current file as the output
+destination. `envdiff` reads it completely before replacing it atomically. The
+equivalent explicit command is:
+
+```bash
+envdiff .env.gateway.example .env.gateway -o .env.gateway
+```
 
 Write to another file without shell redirection:
 
@@ -154,8 +168,10 @@ envdiff .env.gateway.example .env.gateway --output .env.gateway.merged
 Show a structural difference without modifying either file:
 
 ```bash
-envdiff --check .env.gateway.example .env.gateway
+envdiff .env.gateway.example .env.gateway -c
 ```
+
+`-c` is the short form of `--check`.
 
 The report uses diff-like markers:
 
@@ -192,7 +208,7 @@ Do not redirect standard output back to an input file:
 envdiff .env.gateway.example .env.gateway > .env.gateway
 ```
 
-Use `-o .env.gateway` for an atomic in-place update instead.
+Use `-i` (or `-o .env.gateway`) for an atomic in-place update instead.
 
 Show the version:
 
@@ -208,8 +224,8 @@ Exit codes:
 | `1` | `--check` found missing keys/comments or keys only in the current file |
 | `2` | Invalid arguments, malformed input, or an I/O error |
 
-Successful filtering and `-o` writes are quiet. The `--check` report is written
-to standard output; errors are written to standard error. Duplicate keys in
+Successful filtering and `-i`/`-o` writes are quiet. The `--check` report is
+written to standard output; errors are written to standard error. Duplicate keys in
 either file are treated as errors. Both `KEY=value` and `export KEY=value`
 assignments are recognized. The output keeps the working file's LF or CRLF
 line-ending style.
@@ -220,7 +236,7 @@ CI compiles and tests the project with GCC and Clang on Linux, Apple Clang on
 macOS, and MSVC on Windows. Every CI run uploads packaged executables as workflow
 artifacts.
 
-Pushing a version tag such as `v0.3.0` builds all three platform archives and
+Pushing a version tag such as `v0.4.0` builds all three platform archives and
 creates or updates the corresponding GitHub release.
 
 ## Development
