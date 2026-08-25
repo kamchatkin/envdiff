@@ -10,7 +10,7 @@ expected="$test_dir/expected.env"
 
 version="$(./envdiff --version)"
 if [ "$version" != 'envdiff 0.1.0' ]; then
-    echo "неожиданная версия: $version" >&2
+    echo "unexpected version: $version" >&2
     exit 1
 fi
 
@@ -32,12 +32,12 @@ printf '%s\n' \
     'NATS_TLS_CA_FILE=/etc/nats/certs/ca.crt' > "$expected"
 
 if ./envdiff --check "$example" "$current"; then
-    echo 'envdiff --check не сообщил о новых ключах' >&2
+    echo 'envdiff --check did not report missing keys' >&2
     exit 1
 else
     status=$?
     if [ "$status" -ne 1 ]; then
-        echo "envdiff --check вернул неожиданный код $status" >&2
+        echo "envdiff --check returned unexpected status $status" >&2
         exit 1
     fi
 fi
@@ -49,14 +49,14 @@ if ./envdiff --check "$example" "$current"; then
     :
 else
     status=$?
-    echo "envdiff --check вернул неожиданный код $status" >&2
+    echo "envdiff --check returned unexpected status $status" >&2
     exit 1
 fi
 
 printf '%s\n' 'A=one' 'A=two' > "$example"
 if ./envdiff "$example" "$current" 2>/dev/null; then
-    echo 'повторяющийся ключ в example не был отклонён' >&2
+    echo 'duplicate key in example file was not rejected' >&2
     exit 1
 fi
 
-echo 'envdiff: тесты пройдены'
+echo 'envdiff: tests passed'

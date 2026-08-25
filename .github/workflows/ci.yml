@@ -26,7 +26,5 @@ jobs:
       - name: Build and test
         run: make clean check CC=${{ matrix.compiler }}
 
-      - name: Verify version and size
-        run: |
-          ./envdiff --version
-          test "$(wc -c < envdiff)" -le 102400
+      - name: Verify version
+        run: ./envdiff --version

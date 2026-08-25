@@ -11,8 +11,7 @@ command-line tools.
 make clean check
 ```
 
-The executable must remain at or below 102,400 bytes with the default build
-flags. CI verifies the project with GCC and Clang.
+CI verifies the project with GCC and Clang.
 
 ## Behavioral contract
 
@@ -33,4 +32,3 @@ Keep pull requests focused and describe:
 - the problem being solved;
 - any observable behavior change;
 - how the change was tested;
-- the resulting executable size.

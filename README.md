@@ -1,6 +1,6 @@
 # envdiff
 
-[Русская версия](README.ru.md)
+[Russian version](README.ru.md)
 
 `envdiff` updates a working `.env` file from an `.env.example` without comparing
 or overwriting existing values.
@@ -13,7 +13,7 @@ It only:
 - writes changes atomically and preserves file permission bits.
 
 The project is written in portable C11 for Linux. Its Makefile produces a
-dynamically linked, stripped executable and rejects binaries larger than 100 KiB.
+dynamically linked, size-optimized, stripped executable.
 
 ## Example
 
@@ -60,8 +60,8 @@ Requirements:
 make
 ```
 
-The build fails and removes the result if the executable exceeds 102,400 bytes.
-Do not add `-static`: a statically linked libc may exceed this limit.
+The Makefile prints the resulting size for information. Do not add `-static` if
+keeping the executable small matters: a statically linked libc is much larger.
 
 Install to `~/.local/bin`:
 

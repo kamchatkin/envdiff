@@ -35,7 +35,7 @@ typedef struct {
 
 static void out_of_memory(void)
 {
-    fputs("envdiff: недостаточно памяти\n", stderr);
+    fputs("envdiff: out of memory\n", stderr);
     exit(2);
 }
 
@@ -182,7 +182,7 @@ static bool valid_key(const char *key, size_t length)
     return true;
 }
 
-/* Возвращается только имя слева от '='. Значение справа не извлекается. */
+/* Returns only the name to the left of '='. The value is never extracted. */
 static char *env_key(const char *line)
 {
     while (isspace((unsigned char)*line)) {
@@ -229,7 +229,7 @@ static bool read_lines(const char *path, Strings *lines, int *newline_style)
 {
     FILE *file = fopen(path, "rb");
     if (file == NULL) {
-        fprintf(stderr, "envdiff: прочитать %s: %s\n", path, strerror(errno));
+        fprintf(stderr, "envdiff: failed to read %s: %s\n", path, strerror(errno));
         return false;
     }
 
@@ -238,7 +238,7 @@ static bool read_lines(const char *path, Strings *lines, int *newline_style)
     ssize_t length;
     while ((length = getline(&buffer, &capacity, file)) >= 0) {
         if (memchr(buffer, '\0', (size_t)length) != NULL) {
-            fprintf(stderr, "envdiff: %s содержит нулевой байт\n", path);
+            fprintf(stderr, "envdiff: %s contains a NUL byte\n", path);
             free(buffer);
             fclose(file);
             return false;
@@ -259,7 +259,7 @@ static bool read_lines(const char *path, Strings *lines, int *newline_style)
 
     bool success = !ferror(file);
     if (!success) {
-        fprintf(stderr, "envdiff: прочитать %s: %s\n", path, strerror(errno));
+        fprintf(stderr, "envdiff: failed to read %s: %s\n", path, strerror(errno));
     }
     free(buffer);
     fclose(file);
@@ -295,7 +295,7 @@ static bool parse_example(const Strings *lines, Entries *entries)
             continue;
         }
         if (entry_index(entries, key) >= 0) {
-            fprintf(stderr, "envdiff: ключ %s повторяется в example\n", key);
+            fprintf(stderr, "envdiff: duplicate key %s in example file\n", key);
             free(key);
             strings_clear(&pending_comments);
             return false;
@@ -322,7 +322,7 @@ static bool validate_current_keys(const Strings *lines)
             continue;
         }
         if (strings_contains(&keys, key)) {
-            fprintf(stderr, "envdiff: ключ %s повторяется в основном env\n", key);
+            fprintf(stderr, "envdiff: duplicate key %s in current env file\n", key);
             free(key);
             strings_clear(&keys);
             return false;
@@ -467,12 +467,12 @@ static bool write_atomic(
 
     int descriptor = mkstemp(temporary_path);
     if (descriptor < 0) {
-        fprintf(stderr, "envdiff: создать временный файл: %s\n", strerror(errno));
+        fprintf(stderr, "envdiff: failed to create temporary file: %s\n", strerror(errno));
         free(temporary_path);
         return false;
     }
     if (fchmod(descriptor, mode) != 0) {
-        fprintf(stderr, "envdiff: установить права временного файла: %s\n", strerror(errno));
+        fprintf(stderr, "envdiff: failed to set temporary file permissions: %s\n", strerror(errno));
         close(descriptor);
         unlink(temporary_path);
         free(temporary_path);
@@ -481,7 +481,7 @@ static bool write_atomic(
 
     FILE *file = fdopen(descriptor, "wb");
     if (file == NULL) {
-        fprintf(stderr, "envdiff: открыть временный файл: %s\n", strerror(errno));
+        fprintf(stderr, "envdiff: failed to open temporary file: %s\n", strerror(errno));
         close(descriptor);
         unlink(temporary_path);
         free(temporary_path);
@@ -506,13 +506,13 @@ static bool write_atomic(
     }
 
     if (!success) {
-        fprintf(stderr, "envdiff: записать временный файл: %s\n", strerror(errno));
+        fprintf(stderr, "envdiff: failed to write temporary file: %s\n", strerror(errno));
         unlink(temporary_path);
         free(temporary_path);
         return false;
     }
     if (rename(temporary_path, path) != 0) {
-        fprintf(stderr, "envdiff: заменить основной env: %s\n", strerror(errno));
+        fprintf(stderr, "envdiff: failed to replace current env file: %s\n", strerror(errno));
         unlink(temporary_path);
         free(temporary_path);
         return false;
@@ -524,9 +524,9 @@ static bool write_atomic(
 
 static void usage(FILE *stream)
 {
-    fputs("Использование: envdiff [--check] <example.env> <current.env>\n", stream);
-    fputs("Добавляет отсутствующие ключи и новые комментарии.\n", stream);
-    fputs("Существующие значения не извлекаются, не сравниваются и не изменяются.\n", stream);
+    fputs("Usage: envdiff [--check] <example.env> <current.env>\n", stream);
+    fputs("Adds missing keys and new comments.\n", stream);
+    fputs("Existing values are never extracted, compared, or changed.\n", stream);
 }
 
 int main(int argc, char **argv)
@@ -545,7 +545,7 @@ int main(int argc, char **argv)
             usage(stdout);
             return 0;
         } else if (argv[index][0] == '-') {
-            fprintf(stderr, "envdiff: неизвестный параметр: %s\n", argv[index]);
+            fprintf(stderr, "envdiff: unknown option: %s\n", argv[index]);
             usage(stderr);
             return 2;
         } else if (path_count < 2) {
@@ -563,15 +563,15 @@ int main(int argc, char **argv)
     struct stat example_stat;
     struct stat current_stat;
     if (stat(paths[0], &example_stat) != 0) {
-        fprintf(stderr, "envdiff: получить сведения о %s: %s\n", paths[0], strerror(errno));
+        fprintf(stderr, "envdiff: failed to stat %s: %s\n", paths[0], strerror(errno));
         return 2;
     }
     if (stat(paths[1], &current_stat) != 0) {
-        fprintf(stderr, "envdiff: получить сведения о %s: %s\n", paths[1], strerror(errno));
+        fprintf(stderr, "envdiff: failed to stat %s: %s\n", paths[1], strerror(errno));
         return 2;
     }
     if (example_stat.st_dev == current_stat.st_dev && example_stat.st_ino == current_stat.st_ino) {
-        fputs("envdiff: example и основной env должны быть разными файлами\n", stderr);
+        fputs("envdiff: example and current env must be different files\n", stderr);
         return 2;
     }
 
@@ -600,10 +600,10 @@ int main(int argc, char **argv)
 
     int result = 0;
     if (added_keys == 0 && added_comments == 0) {
-        puts("изменений нет");
+        puts("no changes");
     } else if (check) {
         printf(
-            "требуется добавить ключей: %zu, комментариев: %zu\n",
+            "missing keys: %zu, new comments: %zu\n",
             added_keys,
             added_comments
         );
@@ -614,7 +614,7 @@ int main(int argc, char **argv)
         if (!write_atomic(paths[1], &current_lines, newline, current_stat.st_mode & 07777)) {
             result = 2;
         } else {
-            printf("добавлено ключей: %zu, комментариев: %zu\n", added_keys, added_comments);
+            printf("added keys: %zu, comments: %zu\n", added_keys, added_comments);
         }
     }
 

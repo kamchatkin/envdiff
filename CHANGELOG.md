@@ -18,4 +18,4 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - `--check`, `--help`, and `--version` modes.
 - LF and CRLF support.
 - Duplicate-key validation.
-- A build-time executable size limit of 100 KiB.
+- Size-optimized build flags and informational size output.

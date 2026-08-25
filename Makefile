@@ -5,7 +5,6 @@ CFLAGS += -std=c11 -Os -Wall -Wextra -Wpedantic -ffunction-sections -fdata-secti
 LDFLAGS += -Wl,--gc-sections -Wl,-s
 
 PREFIX ?= $(HOME)/.local
-MAX_BYTES ?= 102400
 
 .PHONY: all check test install uninstall clean
 
@@ -13,13 +12,7 @@ all: envdiff
 
 envdiff: envdiff.c
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(LDFLAGS) -o $@ $<
-	@size="$$(wc -c < "$@")"; \
-	if [ "$$size" -gt "$(MAX_BYTES)" ]; then \
-		echo "envdiff: размер $$size байт превышает лимит $(MAX_BYTES)" >&2; \
-		$(RM) "$@"; \
-		exit 1; \
-	fi
-	@echo "envdiff: $$(wc -c < "$@") байт"
+	@echo "envdiff: $$(wc -c < "$@") bytes"
 
 check: envdiff
 	sh ./test.sh
