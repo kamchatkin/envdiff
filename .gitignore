@@ -1,0 +1,6 @@
+/envdiff
+*.o
+*.swp
+*.swo
+.DS_Store
+compile_commands.json

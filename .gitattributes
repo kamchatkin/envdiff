@@ -1,0 +1,5 @@
+* text=auto eol=lf
+
+*.c text diff=cpp
+Makefile text
+test.sh text eol=lf
