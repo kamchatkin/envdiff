@@ -23,7 +23,8 @@ Changes must preserve these guarantees:
 - existing assignment values are never parsed, compared, or replaced;
 - only missing keys and new comments are added;
 - duplicate keys are rejected;
-- updates use an atomic replacement in the target file's directory;
+- default filtering writes merged content only to standard output;
+- `-o` updates use an atomic replacement in the target file's directory;
 - diagnostics never print assignment values.
 
 Add or update a cross-platform case in `tests/integration.cmake` for every

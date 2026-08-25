@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.20)
 
-project(envdiff VERSION 0.1.0 LANGUAGES C)
+project(envdiff VERSION 0.2.0 LANGUAGES C)
 
 add_executable(envdiff envdiff.c)
 set_target_properties(envdiff PROPERTIES
@@ -41,6 +41,7 @@ if(BUILD_TESTING)
         NAME integration
         COMMAND "${CMAKE_COMMAND}"
             "-DENVDIFF_EXECUTABLE=$<TARGET_FILE:envdiff>"
+            "-DENVDIFF_EXPECTED_VERSION=${PROJECT_VERSION}"
             "-DTEST_DIRECTORY=${CMAKE_CURRENT_BINARY_DIR}/integration-test"
             -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/integration.cmake"
     )

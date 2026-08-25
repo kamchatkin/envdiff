@@ -16,6 +16,10 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ### Changed
 
+- The command now behaves as a Unix filter and writes merged content to standard
+  output by default.
+- Added `-o` and `--output` for explicit atomic file output.
+- Successful filtering and file output no longer emit status messages.
 - File reading no longer depends on the POSIX `getline` function.
 - Atomic replacement now uses the native Windows `ReplaceFile` API on Windows.
 

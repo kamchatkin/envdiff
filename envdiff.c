@@ -12,6 +12,7 @@
 
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
+#include <fcntl.h>
 #include <io.h>
 #include <windows.h>
 #else
@@ -21,7 +22,7 @@
 #endif
 
 #ifndef ENVDIFF_VERSION
-#define ENVDIFF_VERSION "0.1.0"
+#define ENVDIFF_VERSION "0.2.0"
 #endif
 
 typedef struct {
@@ -512,8 +513,9 @@ static const char *base_name(const char *path)
 }
 #endif
 
-static bool read_file_info(const char *path, FileInfo *info)
+static bool read_file_info_if_exists(const char *path, FileInfo *info, bool *exists)
 {
+    *exists = false;
 #ifdef _WIN32
     HANDLE file = CreateFileA(
         path,
@@ -525,7 +527,11 @@ static bool read_file_info(const char *path, FileInfo *info)
         NULL
     );
     if (file == INVALID_HANDLE_VALUE) {
-        fprintf(stderr, "envdiff: failed to inspect %s: Windows error %lu\n", path, GetLastError());
+        DWORD error = GetLastError();
+        if (error == ERROR_FILE_NOT_FOUND || error == ERROR_PATH_NOT_FOUND) {
+            return true;
+        }
+        fprintf(stderr, "envdiff: failed to inspect %s: Windows error %lu\n", path, error);
         return false;
     }
 
@@ -548,6 +554,9 @@ static bool read_file_info(const char *path, FileInfo *info)
 #else
     struct stat details;
     if (stat(path, &details) != 0) {
+        if (errno == ENOENT || errno == ENOTDIR) {
+            return true;
+        }
         fprintf(stderr, "envdiff: failed to inspect %s: %s\n", path, strerror(errno));
         return false;
     }
@@ -560,6 +569,20 @@ static bool read_file_info(const char *path, FileInfo *info)
     info->inode = details.st_ino;
     info->mode = details.st_mode;
 #endif
+    *exists = true;
+    return true;
+}
+
+static bool read_file_info(const char *path, FileInfo *info)
+{
+    bool exists;
+    if (!read_file_info_if_exists(path, info, &exists)) {
+        return false;
+    }
+    if (!exists) {
+        fprintf(stderr, "envdiff: %s does not exist\n", path);
+        return false;
+    }
     return true;
 }
 
@@ -578,12 +601,13 @@ static bool write_atomic(
     const char *path,
     const Strings *lines,
     const char *newline,
-    const FileInfo *current_info
+    const FileInfo *output_info,
+    bool target_exists
 )
 {
     char *directory = directory_name(path);
 #ifdef _WIN32
-    (void)current_info;
+    (void)output_info;
     char temporary_buffer[MAX_PATH + 1];
     if (GetTempFileNameA(directory, "env", 0, temporary_buffer) == 0) {
         DWORD error = GetLastError();
@@ -602,6 +626,7 @@ static bool write_atomic(
         return false;
     }
 #else
+    (void)target_exists;
     const char *base = base_name(path);
     size_t template_length = strlen(directory) + strlen(base) + 20;
     char *temporary_path = malloc(template_length);
@@ -618,7 +643,7 @@ static bool write_atomic(
         free(temporary_path);
         return false;
     }
-    if (fchmod(descriptor, current_info->mode & 07777) != 0) {
+    if (fchmod(descriptor, output_info->mode & 07777) != 0) {
         fprintf(stderr, "envdiff: failed to set temporary file permissions: %s\n", strerror(errno));
         close(descriptor);
         unlink(temporary_path);
@@ -668,16 +693,23 @@ static bool write_atomic(
         return false;
     }
 #ifdef _WIN32
-    if (!ReplaceFileA(path, temporary_path, NULL, REPLACEFILE_WRITE_THROUGH, NULL, NULL)) {
+    BOOL replaced = target_exists
+        ? ReplaceFileA(path, temporary_path, NULL, REPLACEFILE_WRITE_THROUGH, NULL, NULL)
+        : MoveFileExA(
+            temporary_path,
+            path,
+            MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH
+        );
+    if (!replaced) {
         DWORD error = GetLastError();
-        fprintf(stderr, "envdiff: failed to replace current env file: Windows error %lu\n", error);
+        fprintf(stderr, "envdiff: failed to update output file: Windows error %lu\n", error);
         DeleteFileA(temporary_path);
         free(temporary_path);
         return false;
     }
 #else
     if (rename(temporary_path, path) != 0) {
-        fprintf(stderr, "envdiff: failed to replace current env file: %s\n", strerror(errno));
+        fprintf(stderr, "envdiff: failed to update output file: %s\n", strerror(errno));
         unlink(temporary_path);
         free(temporary_path);
         return false;
@@ -690,27 +722,64 @@ static bool write_atomic(
 
 static void usage(FILE *stream)
 {
-    fputs("Usage: envdiff [--check] <example.env> <current.env>\n", stream);
-    fputs("Adds missing keys and new comments.\n", stream);
+    fputs("Usage: envdiff [--check] [-o FILE] <example.env> <current.env>\n", stream);
+    fputs("Writes the merged environment to standard output by default.\n", stream);
     fputs("Existing values are never extracted, compared, or changed.\n", stream);
+    fputs("\nOptions:\n", stream);
+    fputs("  -o, --output FILE  Atomically write the result to FILE\n", stream);
+    fputs("      --check        Report whether keys or comments are missing\n", stream);
+    fputs("  -h, --help         Show this help\n", stream);
+    fputs("  -V, --version      Show the version\n", stream);
 }
 
 int main(int argc, char **argv)
 {
     bool check = false;
+    bool parse_options = true;
+    const char *output_path = NULL;
     const char *paths[2] = {0};
     size_t path_count = 0;
 
     for (int index = 1; index < argc; index++) {
-        if (strcmp(argv[index], "--check") == 0) {
+        if (parse_options && strcmp(argv[index], "--") == 0) {
+            parse_options = false;
+        } else if (parse_options && strcmp(argv[index], "--check") == 0) {
             check = true;
-        } else if (strcmp(argv[index], "--version") == 0 || strcmp(argv[index], "-V") == 0) {
+        } else if (parse_options
+            && (strcmp(argv[index], "-o") == 0 || strcmp(argv[index], "--output") == 0)) {
+            if (output_path != NULL) {
+                fputs("envdiff: output option specified more than once\n", stderr);
+                return 2;
+            }
+            if (++index >= argc) {
+                fputs("envdiff: output option requires a file path\n", stderr);
+                usage(stderr);
+                return 2;
+            }
+            output_path = argv[index];
+            if (*output_path == '\0') {
+                fputs("envdiff: output option requires a file path\n", stderr);
+                return 2;
+            }
+        } else if (parse_options && strncmp(argv[index], "--output=", 9) == 0) {
+            if (output_path != NULL) {
+                fputs("envdiff: output option specified more than once\n", stderr);
+                return 2;
+            }
+            output_path = argv[index] + 9;
+            if (*output_path == '\0') {
+                fputs("envdiff: output option requires a file path\n", stderr);
+                return 2;
+            }
+        } else if (parse_options
+            && (strcmp(argv[index], "--version") == 0 || strcmp(argv[index], "-V") == 0)) {
             printf("envdiff %s\n", ENVDIFF_VERSION);
             return 0;
-        } else if (strcmp(argv[index], "--help") == 0 || strcmp(argv[index], "-h") == 0) {
+        } else if (parse_options
+            && (strcmp(argv[index], "--help") == 0 || strcmp(argv[index], "-h") == 0)) {
             usage(stdout);
             return 0;
-        } else if (argv[index][0] == '-') {
+        } else if (parse_options && argv[index][0] == '-') {
             fprintf(stderr, "envdiff: unknown option: %s\n", argv[index]);
             usage(stderr);
             return 2;
@@ -723,6 +792,10 @@ int main(int argc, char **argv)
     }
     if (path_count != 2) {
         usage(stderr);
+        return 2;
+    }
+    if (check && output_path != NULL) {
+        fputs("envdiff: --check and --output cannot be used together\n", stderr);
         return 2;
     }
 
@@ -760,23 +833,59 @@ int main(int argc, char **argv)
     size_t added_comments = 0;
     merge_env(&entries, &current_lines, &added_keys, &added_comments);
 
+    int newline_style = current_newline != 0 ? current_newline : example_newline;
+    const char *newline = newline_style == 2 ? "\r\n" : "\n";
+
     int result = 0;
-    if (added_keys == 0 && added_comments == 0) {
-        puts("no changes");
-    } else if (check) {
-        printf(
-            "missing keys: %zu, new comments: %zu\n",
-            added_keys,
-            added_comments
-        );
-        result = 1;
-    } else {
-        int newline_style = current_newline != 0 ? current_newline : example_newline;
-        const char *newline = newline_style == 2 ? "\r\n" : "\n";
-        if (!write_atomic(paths[1], &current_lines, newline, &current_info)) {
-            result = 2;
+    if (check) {
+        if (added_keys == 0 && added_comments == 0) {
+            result = 0;
         } else {
-            printf("added keys: %zu, comments: %zu\n", added_keys, added_comments);
+            fprintf(
+                stderr,
+                "missing keys: %zu, new comments: %zu\n",
+                added_keys,
+                added_comments
+            );
+            result = 1;
+        }
+    } else if (output_path == NULL) {
+#ifdef _WIN32
+        if (_setmode(_fileno(stdout), _O_BINARY) == -1) {
+            fprintf(stderr, "envdiff: failed to set binary output mode: %s\n", strerror(errno));
+            result = 2;
+        } else
+#endif
+        {
+            for (size_t index = 0; index < current_lines.length; index++) {
+                if (fputs(current_lines.items[index], stdout) == EOF
+                    || fputs(newline, stdout) == EOF) {
+                    result = 2;
+                    break;
+                }
+            }
+            if (result == 0 && fflush(stdout) != 0) {
+                result = 2;
+            }
+            if (result != 0) {
+                fprintf(stderr, "envdiff: failed to write standard output: %s\n", strerror(errno));
+            }
+        }
+    } else {
+        FileInfo output_info = current_info;
+        bool output_exists = false;
+        if (!read_file_info_if_exists(output_path, &output_info, &output_exists)) {
+            result = 2;
+        } else if ((added_keys != 0 || added_comments != 0
+                || !output_exists || !same_file(&output_info, &current_info))
+            && !write_atomic(
+                output_path,
+                &current_lines,
+                newline,
+                &output_info,
+                output_exists
+            )) {
+            result = 2;
         }
     }
 

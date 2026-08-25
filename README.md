@@ -2,15 +2,18 @@
 
 [Russian version](README.ru.md)
 
-`envdiff` updates a working `.env` file from an `.env.example` without comparing
-or overwriting existing values.
+`envdiff` merges an `.env.example` with a working `.env` without comparing or
+overwriting existing values. It behaves as a Unix filter: the merged content is
+written to standard output unless an output file is explicitly selected.
 
 It only:
 
 - adds keys that do not exist in the working file;
 - adds new comments from the example;
 - preserves every existing assignment verbatim;
-- writes changes atomically and preserves file permission bits.
+- writes only merged content to standard output;
+- atomically creates or replaces files selected with `-o` and preserves existing
+  file permissions.
 
 The project is written in portable C11 and supports Linux, macOS, and Windows.
 Release builds are optimized for size.
@@ -34,7 +37,7 @@ NATS_URL=nats://custom-host:4222
 NATS_PASSWORD=local-secret
 ```
 
-Working file after merging:
+Merged output:
 
 ```dotenv
 # NATS endpoint
@@ -106,20 +109,48 @@ make install PREFIX=/usr/local
 ## Usage
 
 ```text
-envdiff [--check] <example.env> <current.env>
+envdiff [--check] [-o FILE] <example.env> <current.env>
 ```
 
-Apply missing keys and comments:
+Print the merged environment to standard output without modifying either input
+file:
 
 ```bash
 envdiff .env.gateway.example .env.gateway
 ```
 
-Check without writing:
+Redirect the output into a different file:
+
+```bash
+envdiff .env.gateway.example .env.gateway > .env.gateway.merged
+```
+
+Atomically update the working file:
+
+```bash
+envdiff -o .env.gateway .env.gateway.example .env.gateway
+```
+
+Write to another file without shell redirection:
+
+```bash
+envdiff --output .env.gateway.merged .env.gateway.example .env.gateway
+```
+
+Check whether anything is missing without producing merged output:
 
 ```bash
 envdiff --check .env.gateway.example .env.gateway
 ```
+
+Do not redirect standard output back to an input file:
+
+```bash
+# Wrong: the shell truncates .env.gateway before envdiff reads it.
+envdiff .env.gateway.example .env.gateway > .env.gateway
+```
+
+Use `-o .env.gateway` for an atomic in-place update instead.
 
 Show the version:
 
@@ -131,13 +162,14 @@ Exit codes:
 
 | Code | Meaning |
 |---:|---|
-| `0` | Merge succeeded, or `--check` found no changes |
+| `0` | Output succeeded, or `--check` found no changes |
 | `1` | `--check` found missing keys or comments |
 | `2` | Invalid arguments, malformed input, or an I/O error |
 
-Duplicate keys in either file are treated as errors. Both `KEY=value` and
-`export KEY=value` assignments are recognized. The output keeps the working
-file's LF or CRLF line-ending style.
+Successful filtering and `-o` writes are quiet: diagnostics are written only to
+standard error. Duplicate keys in either file are treated as errors. Both
+`KEY=value` and `export KEY=value` assignments are recognized. The output keeps
+the working file's LF or CRLF line-ending style.
 
 ## Automated builds
 
@@ -145,7 +177,7 @@ CI compiles and tests the project with GCC and Clang on Linux, Apple Clang on
 macOS, and MSVC on Windows. Every CI run uploads packaged executables as workflow
 artifacts.
 
-Pushing a version tag such as `v0.1.0` builds all three platform archives and
+Pushing a version tag such as `v0.2.0` builds all three platform archives and
 creates or updates the corresponding GitHub release.
 
 ## Development
