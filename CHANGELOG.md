@@ -9,6 +9,19 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ### Added
 
+- Detailed `--check` output with complete example assignments, redacted
+  current-only assignments, and associated comments.
+- Detection of keys that exist only in the current environment file.
+
+### Changed
+
+- `--check` now writes a structural diff to standard output and remains quiet
+  when the files have the same keys and comments.
+
+## 0.2.0 - 2026-08-25
+
+### Added
+
 - Native Windows and macOS support.
 - CMake builds and cross-platform integration tests.
 - CI artifacts for Linux, macOS, and Windows.

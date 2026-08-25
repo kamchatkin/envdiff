@@ -112,6 +112,16 @@ make install PREFIX=/usr/local
 envdiff [--check] [-o FILE] <example.env> <current.env>
 ```
 
+The two positional arguments always have the same order:
+
+1. `<example.env>` is the template containing the expected keys and comments;
+2. `<current.env>` is the working file whose existing values are preserved.
+
+`FILE` following `-o` or `--output` is an option argument: it is the output
+destination, not one of the two positional arguments. Options may appear before
+or after the positional arguments. The examples below put the output option last
+to keep the flow visually consistent: `example -> current -> output`.
+
 Print the merged environment to standard output without modifying either input
 file:
 
@@ -128,20 +138,52 @@ envdiff .env.gateway.example .env.gateway > .env.gateway.merged
 Atomically update the working file:
 
 ```bash
-envdiff -o .env.gateway .env.gateway.example .env.gateway
+envdiff .env.gateway.example .env.gateway -o .env.gateway
 ```
+
+Here `.env.gateway` appears twice: first as the working input and then as the
+output destination. `envdiff` reads it completely before replacing it
+atomically.
 
 Write to another file without shell redirection:
 
 ```bash
-envdiff --output .env.gateway.merged .env.gateway.example .env.gateway
+envdiff .env.gateway.example .env.gateway --output .env.gateway.merged
 ```
 
-Check whether anything is missing without producing merged output:
+Show a structural difference without modifying either file:
 
 ```bash
 envdiff --check .env.gateway.example .env.gateway
 ```
+
+The report uses diff-like markers:
+
+- `+` is a missing key or comment from the example;
+- `-` is a key that exists only in the current file and should be reviewed
+  before removal; its value is replaced with `<value hidden>`;
+- an unprefixed key is context for a missing comment; its value is not compared.
+
+Complete example assignments are printed for `+` keys so they can be applied
+manually. Current-only values are hidden because the key name is sufficient for
+manual removal. Values of keys present in both files are never compared.
+
+```text
+Missing from .env:
+
++ # Request timeout
++ REQUEST_TIMEOUT=30
+
+Only in .env (review before removing):
+
+- # Legacy option
+- LEGACY_TOKEN=<value hidden>
+```
+
+> **Warning:** `--check` prints values from the example file and comments from
+> both files. Current-only assignment values are redacted, but comments are not.
+> Do not store secrets in comments or `.env.example` files, and do not expose
+> such output in public CI logs.
 
 Do not redirect standard output back to an input file:
 
@@ -163,13 +205,14 @@ Exit codes:
 | Code | Meaning |
 |---:|---|
 | `0` | Output succeeded, or `--check` found no changes |
-| `1` | `--check` found missing keys or comments |
+| `1` | `--check` found missing keys/comments or keys only in the current file |
 | `2` | Invalid arguments, malformed input, or an I/O error |
 
-Successful filtering and `-o` writes are quiet: diagnostics are written only to
-standard error. Duplicate keys in either file are treated as errors. Both
-`KEY=value` and `export KEY=value` assignments are recognized. The output keeps
-the working file's LF or CRLF line-ending style.
+Successful filtering and `-o` writes are quiet. The `--check` report is written
+to standard output; errors are written to standard error. Duplicate keys in
+either file are treated as errors. Both `KEY=value` and `export KEY=value`
+assignments are recognized. The output keeps the working file's LF or CRLF
+line-ending style.
 
 ## Automated builds
 
@@ -177,7 +220,7 @@ CI compiles and tests the project with GCC and Clang on Linux, Apple Clang on
 macOS, and MSVC on Windows. Every CI run uploads packaged executables as workflow
 artifacts.
 
-Pushing a version tag such as `v0.2.0` builds all three platform archives and
+Pushing a version tag such as `v0.3.0` builds all three platform archives and
 creates or updates the corresponding GitHub release.
 
 ## Development

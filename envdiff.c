@@ -22,7 +22,7 @@
 #endif
 
 #ifndef ENVDIFF_VERSION
-#define ENVDIFF_VERSION "0.2.0"
+#define ENVDIFF_VERSION "0.3.0"
 #endif
 
 typedef struct {
@@ -42,6 +42,13 @@ typedef struct {
     size_t length;
     size_t capacity;
 } Entries;
+
+typedef struct {
+    size_t missing_keys;
+    size_t only_current_keys;
+    size_t missing_comments;
+    size_t missing_comments_on_existing_keys;
+} DiffStats;
 
 typedef struct {
 #ifdef _WIN32
@@ -323,7 +330,11 @@ static ptrdiff_t entry_index(const Entries *entries, const char *key)
     return -1;
 }
 
-static bool parse_example(const Strings *lines, Entries *entries)
+static bool parse_entries(
+    const Strings *lines,
+    Entries *entries,
+    const char *file_description
+)
 {
     Strings pending_comments = {0};
     for (size_t index = 0; index < lines->length; index++) {
@@ -342,7 +353,7 @@ static bool parse_example(const Strings *lines, Entries *entries)
             continue;
         }
         if (entry_index(entries, key) >= 0) {
-            fprintf(stderr, "envdiff: duplicate key %s in example file\n", key);
+            fprintf(stderr, "envdiff: duplicate key %s in %s\n", key, file_description);
             free(key);
             strings_clear(&pending_comments);
             return false;
@@ -357,26 +368,6 @@ static bool parse_example(const Strings *lines, Entries *entries)
         entries_push(entries, entry);
     }
     strings_clear(&pending_comments);
-    return true;
-}
-
-static bool validate_current_keys(const Strings *lines)
-{
-    Strings keys = {0};
-    for (size_t index = 0; index < lines->length; index++) {
-        char *key = env_key(lines->items[index]);
-        if (key == NULL) {
-            continue;
-        }
-        if (strings_contains(&keys, key)) {
-            fprintf(stderr, "envdiff: duplicate key %s in current env file\n", key);
-            free(key);
-            strings_clear(&keys);
-            return false;
-        }
-        strings_push_owned(&keys, key);
-    }
-    strings_clear(&keys);
     return true;
 }
 
@@ -425,6 +416,137 @@ static Strings new_comments(const Strings *comments, Strings *known, size_t *add
         (*added)++;
     }
     return result;
+}
+
+static DiffStats calculate_diff(
+    const Entries *example_entries,
+    const Entries *current_entries,
+    const Strings *current_lines
+)
+{
+    DiffStats stats = {0};
+    Strings known_comments = {0};
+    collect_comments(current_lines, &known_comments);
+
+    for (size_t index = 0; index < example_entries->length; index++) {
+        const Entry *entry = &example_entries->items[index];
+        if (entry_index(current_entries, entry->key) < 0) {
+            stats.missing_keys++;
+        }
+        Strings comments = new_comments(
+            &entry->comments,
+            &known_comments,
+            &stats.missing_comments
+        );
+        if (entry_index(current_entries, entry->key) >= 0) {
+            stats.missing_comments_on_existing_keys += comments.length;
+        }
+        strings_clear(&comments);
+    }
+
+    for (size_t index = 0; index < current_entries->length; index++) {
+        if (entry_index(example_entries, current_entries->items[index].key) < 0) {
+            stats.only_current_keys++;
+        }
+    }
+
+    strings_clear(&known_comments);
+    return stats;
+}
+
+static bool diff_has_changes(const DiffStats *stats)
+{
+    return stats->missing_keys != 0
+        || stats->only_current_keys != 0
+        || stats->missing_comments != 0;
+}
+
+static void print_example_diff_section(
+    const Entries *example_entries,
+    const Entries *current_entries,
+    const Strings *current_lines,
+    bool print_missing_keys
+)
+{
+    Strings known_comments = {0};
+    collect_comments(current_lines, &known_comments);
+
+    for (size_t index = 0; index < example_entries->length; index++) {
+        const Entry *entry = &example_entries->items[index];
+        bool key_is_missing = entry_index(current_entries, entry->key) < 0;
+        size_t ignored_count = 0;
+        Strings comments = new_comments(
+            &entry->comments,
+            &known_comments,
+            &ignored_count
+        );
+
+        if (print_missing_keys && key_is_missing) {
+            for (size_t comment = 0; comment < comments.length; comment++) {
+                printf("+ %s\n", comments.items[comment]);
+            }
+            printf("+ %s\n\n", entry->assignment);
+        } else if (!print_missing_keys && !key_is_missing && comments.length != 0) {
+            for (size_t comment = 0; comment < comments.length; comment++) {
+                printf("+ %s\n", comments.items[comment]);
+            }
+            printf("  %s (existing value is not compared)\n\n", entry->key);
+        }
+
+        strings_clear(&comments);
+    }
+
+    strings_clear(&known_comments);
+}
+
+static void print_check_diff(
+    const char *current_path,
+    const Entries *example_entries,
+    const Entries *current_entries,
+    const Strings *current_lines,
+    const DiffStats *stats
+)
+{
+    printf(
+        "missing keys: %zu, only in current: %zu, new comments: %zu\n\n",
+        stats->missing_keys,
+        stats->only_current_keys,
+        stats->missing_comments
+    );
+
+    if (stats->missing_keys != 0) {
+        printf("Missing from %s:\n\n", current_path);
+        print_example_diff_section(
+            example_entries,
+            current_entries,
+            current_lines,
+            true
+        );
+    }
+
+    if (stats->missing_comments_on_existing_keys != 0) {
+        printf("Comments missing from %s:\n\n", current_path);
+        print_example_diff_section(
+            example_entries,
+            current_entries,
+            current_lines,
+            false
+        );
+    }
+
+    if (stats->only_current_keys != 0) {
+        printf("Only in %s (review before removing):\n\n", current_path);
+        for (size_t index = 0; index < current_entries->length; index++) {
+            const Entry *entry = &current_entries->items[index];
+            if (entry_index(example_entries, entry->key) >= 0) {
+                continue;
+            }
+            for (size_t comment = 0; comment < entry->comments.length; comment++) {
+                printf("- %s\n", entry->comments.items[comment]);
+            }
+            printf("- %s=<value hidden>\n\n", entry->key);
+        }
+    }
 }
 
 static size_t preceding_comment_start(const Strings *lines, size_t key_index)
@@ -727,7 +849,7 @@ static void usage(FILE *stream)
     fputs("Existing values are never extracted, compared, or changed.\n", stream);
     fputs("\nOptions:\n", stream);
     fputs("  -o, --output FILE  Atomically write the result to FILE\n", stream);
-    fputs("      --check        Report whether keys or comments are missing\n", stream);
+    fputs("      --check        Show the structural difference without writing files\n", stream);
     fputs("  -h, --help         Show this help\n", stream);
     fputs("  -V, --version      Show the version\n", stream);
 }
@@ -821,35 +943,58 @@ int main(int argc, char **argv)
         return 2;
     }
 
-    Entries entries = {0};
-    if (!parse_example(&example_lines, &entries) || !validate_current_keys(&current_lines)) {
-        entries_clear(&entries);
+    Entries example_entries = {0};
+    Entries current_entries = {0};
+    if (!parse_entries(&example_lines, &example_entries, "example file")
+        || !parse_entries(&current_lines, &current_entries, "current env file")) {
+        entries_clear(&example_entries);
+        entries_clear(&current_entries);
         strings_clear(&example_lines);
         strings_clear(&current_lines);
         return 2;
     }
 
+    if (check) {
+        DiffStats stats = calculate_diff(
+            &example_entries,
+            &current_entries,
+            &current_lines
+        );
+        int result = 0;
+        if (diff_has_changes(&stats)) {
+            print_check_diff(
+                paths[1],
+                &example_entries,
+                &current_entries,
+                &current_lines,
+                &stats
+            );
+            result = 1;
+            if (fflush(stdout) != 0) {
+                fprintf(
+                    stderr,
+                    "envdiff: failed to write check output: %s\n",
+                    strerror(errno)
+                );
+                result = 2;
+            }
+        }
+        entries_clear(&example_entries);
+        entries_clear(&current_entries);
+        strings_clear(&example_lines);
+        strings_clear(&current_lines);
+        return result;
+    }
+
     size_t added_keys = 0;
     size_t added_comments = 0;
-    merge_env(&entries, &current_lines, &added_keys, &added_comments);
+    merge_env(&example_entries, &current_lines, &added_keys, &added_comments);
 
     int newline_style = current_newline != 0 ? current_newline : example_newline;
     const char *newline = newline_style == 2 ? "\r\n" : "\n";
 
     int result = 0;
-    if (check) {
-        if (added_keys == 0 && added_comments == 0) {
-            result = 0;
-        } else {
-            fprintf(
-                stderr,
-                "missing keys: %zu, new comments: %zu\n",
-                added_keys,
-                added_comments
-            );
-            result = 1;
-        }
-    } else if (output_path == NULL) {
+    if (output_path == NULL) {
 #ifdef _WIN32
         if (_setmode(_fileno(stdout), _O_BINARY) == -1) {
             fprintf(stderr, "envdiff: failed to set binary output mode: %s\n", strerror(errno));
@@ -889,7 +1034,8 @@ int main(int argc, char **argv)
         }
     }
 
-    entries_clear(&entries);
+    entries_clear(&example_entries);
+    entries_clear(&current_entries);
     strings_clear(&example_lines);
     strings_clear(&current_lines);
     return result;

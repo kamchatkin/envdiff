@@ -17,6 +17,7 @@ set(output "${TEST_DIRECTORY}/output.env")
 file(WRITE "${example}"
     "# Service endpoint\n"
     "SERVICE_URL=https://example.invalid\n"
+    "LOCAL_SECRET=example-placeholder\n"
     "\n"
     "# Request timeout\n"
     "SERVICE_TIMEOUT=30\n"
@@ -53,6 +54,24 @@ execute_process(
 )
 if(NOT check_before_result EQUAL 1)
     message(FATAL_ERROR "Initial check returned ${check_before_result}: ${check_before_error}${check_before_output}")
+endif()
+string(CONCAT expected_check_before
+    "missing keys: 1, only in current: 0, new comments: 2\n"
+    "\n"
+    "Missing from ${current}:\n"
+    "\n"
+    "+ # Request timeout\n"
+    "+ SERVICE_TIMEOUT=30\n"
+    "\n"
+    "Comments missing from ${current}:\n"
+    "\n"
+    "+ # Service endpoint\n"
+    "  SERVICE_URL (existing value is not compared)\n"
+    "\n"
+)
+string(REPLACE "\r\n" "\n" normalized_check_before "${check_before_output}")
+if(NOT normalized_check_before STREQUAL expected_check_before OR NOT check_before_error STREQUAL "")
+    message(FATAL_ERROR "Initial structural diff does not match the expected output")
 endif()
 
 execute_process(
@@ -115,6 +134,33 @@ execute_process(
 )
 if(NOT check_after_result EQUAL 0)
     message(FATAL_ERROR "Final check returned ${check_after_result}: ${check_after_error}${check_after_output}")
+endif()
+if(NOT check_after_output STREQUAL "" OR NOT check_after_error STREQUAL "")
+    message(FATAL_ERROR "Final check was not quiet for matching files")
+endif()
+
+file(APPEND "${current}" "# Legacy option\nLEGACY_TOKEN=remove-this-secret\n")
+execute_process(
+    COMMAND "${ENVDIFF_EXECUTABLE}" --check "${example}" "${current}"
+    RESULT_VARIABLE only_current_result
+    OUTPUT_VARIABLE only_current_output
+    ERROR_VARIABLE only_current_error
+)
+if(NOT only_current_result EQUAL 1)
+    message(FATAL_ERROR "Current-only check returned ${only_current_result}")
+endif()
+string(CONCAT expected_only_current
+    "missing keys: 0, only in current: 1, new comments: 0\n"
+    "\n"
+    "Only in ${current} (review before removing):\n"
+    "\n"
+    "- # Legacy option\n"
+    "- LEGACY_TOKEN=<value hidden>\n"
+    "\n"
+)
+string(REPLACE "\r\n" "\n" normalized_only_current "${only_current_output}")
+if(NOT normalized_only_current STREQUAL expected_only_current OR NOT only_current_error STREQUAL "")
+    message(FATAL_ERROR "Current-only structural diff does not match the expected output")
 endif()
 
 execute_process(

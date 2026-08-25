@@ -25,7 +25,10 @@ Changes must preserve these guarantees:
 - duplicate keys are rejected;
 - default filtering writes merged content only to standard output;
 - `-o` updates use an atomic replacement in the target file's directory;
-- diagnostics never print assignment values.
+- values of keys present in both files are never compared;
+- ordinary error diagnostics never print assignment values;
+- `--check` prints complete assignments only for missing example keys and
+  redacts values of keys that exist only in the current file.
 
 Add or update a cross-platform case in `tests/integration.cmake` for every
 behavior change. Add a case to `test.sh` as well when the behavior is specific
