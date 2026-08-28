@@ -21,7 +21,8 @@ and Clang on Linux, Apple Clang on macOS, and MSVC on Windows.
 Changes must preserve these guarantees:
 
 - existing assignment values are never parsed, compared, or replaced;
-- only missing keys and new comments are added;
+- only missing keys and new comments are added unless `--remove` is selected;
+- `--remove` deletes only current-only keys and their associated comments;
 - duplicate keys are rejected;
 - default filtering writes merged content only to standard output;
 - `-o` updates use an atomic replacement in the target file's directory;

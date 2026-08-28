@@ -6,7 +6,7 @@
 overwriting existing values. It behaves as a Unix filter: the merged content is
 written to standard output unless an output file is explicitly selected.
 
-It only:
+By default, it only:
 
 - adds keys that do not exist in the working file;
 - adds new comments from the example;
@@ -109,7 +109,7 @@ make install PREFIX=/usr/local
 ## Usage
 
 ```text
-envdiff [-c] [-f] [-i | -o FILE] <example.env> <current.env>
+envdiff [-c] [-f] [-r] [-i | -o FILE] <example.env> <current.env>
 ```
 
 The two positional arguments always have the same order:
@@ -126,6 +126,22 @@ when such a current file name is intentional:
 ```bash
 envdiff -f template.env current.example.env
 ```
+
+Use `-r` or `--remove` to make the example's key set authoritative during a
+merge. Keys found only in the current file, and their associated comments, are
+removed from the result. For example, atomically remove obsolete keys while
+preserving the values of all keys still present in the example:
+
+```bash
+envdiff .env.gateway.example .env.gateway -ri
+```
+
+Short options that do not take an argument can be combined, so `-ri` is
+equivalent to `-r -i`. The `-o FILE` option must be written separately.
+
+Without `-r`, current-only keys are always preserved. In filter mode, `-r`
+changes only the generated output; an input file is modified only when `-i` or a
+matching `-o FILE` is selected. With `--check`, `-r` does not remove anything.
 
 `FILE` following `-o` or `--output` is an option argument: it is the output
 destination, not one of the two positional arguments. Options may appear before
@@ -177,7 +193,8 @@ The report uses diff-like markers:
 
 - `+` is a missing key or comment from the example;
 - `-` is a key that exists only in the current file and should be reviewed
-  before removal; its value is replaced with `<value hidden>`;
+  before removal (or removed by a merge with `-r`); its value is replaced with
+  `<value hidden>`;
 - an unprefixed key is context for a missing comment; its value is not compared.
 
 Complete example assignments are printed for `+` keys so they can be applied
@@ -236,7 +253,7 @@ CI compiles and tests the project with GCC and Clang on Linux, Apple Clang on
 macOS, and MSVC on Windows. Every CI run uploads packaged executables as workflow
 artifacts.
 
-Pushing a version tag such as `v0.4.0` builds all three platform archives and
+Pushing a version tag such as `v0.5.0` builds all three platform archives and
 creates or updates the corresponding GitHub release.
 
 ## Development

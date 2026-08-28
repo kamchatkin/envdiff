@@ -196,6 +196,57 @@ if(NOT normalized_only_current STREQUAL expected_only_current OR NOT only_curren
 endif()
 
 execute_process(
+    COMMAND "${ENVDIFF_EXECUTABLE}" "${example}" "${current}"
+    RESULT_VARIABLE conservative_merge_result
+    OUTPUT_VARIABLE conservative_merge_output
+    ERROR_VARIABLE conservative_merge_error
+)
+file(READ "${current}" current_with_legacy_content)
+if(NOT conservative_merge_result EQUAL 0
+    OR NOT conservative_merge_output STREQUAL current_with_legacy_content
+    OR NOT conservative_merge_error STREQUAL "")
+    message(FATAL_ERROR "Default merge did not preserve a current-only key")
+endif()
+
+execute_process(
+    COMMAND "${ENVDIFF_EXECUTABLE}" --force "${example}" "${current}"
+    RESULT_VARIABLE force_preserve_result
+    OUTPUT_VARIABLE force_preserve_output
+    ERROR_VARIABLE force_preserve_error
+)
+if(NOT force_preserve_result EQUAL 0
+    OR NOT force_preserve_output STREQUAL current_with_legacy_content
+    OR NOT force_preserve_error STREQUAL "")
+    message(FATAL_ERROR "Force unexpectedly removed a current-only key")
+endif()
+
+execute_process(
+    COMMAND "${ENVDIFF_EXECUTABLE}" --remove "${example}" "${current}"
+    RESULT_VARIABLE remove_filter_result
+    OUTPUT_VARIABLE remove_filter_output
+    ERROR_VARIABLE remove_filter_error
+)
+if(NOT remove_filter_result EQUAL 0
+    OR NOT remove_filter_output STREQUAL expected_content
+    OR NOT remove_filter_error STREQUAL "")
+    message(FATAL_ERROR "Remove filter did not remove a current-only key")
+endif()
+
+execute_process(
+    COMMAND "${ENVDIFF_EXECUTABLE}" "${example}" "${current}" -ri
+    RESULT_VARIABLE remove_inplace_result
+    OUTPUT_VARIABLE remove_inplace_output
+    ERROR_VARIABLE remove_inplace_error
+)
+file(READ "${current}" remove_inplace_content)
+if(NOT remove_inplace_result EQUAL 0
+    OR NOT remove_inplace_content STREQUAL expected_content
+    OR NOT remove_inplace_output STREQUAL ""
+    OR NOT remove_inplace_error STREQUAL "")
+    message(FATAL_ERROR "Remove in-place merge did not remove a current-only key")
+endif()
+
+execute_process(
     COMMAND "${ENVDIFF_EXECUTABLE}" --check -o "${output}" "${example}" "${current}"
     RESULT_VARIABLE invalid_options_result
     OUTPUT_VARIABLE invalid_options_output

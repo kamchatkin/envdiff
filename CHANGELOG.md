@@ -7,6 +7,15 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## Unreleased
 
+## 0.5.0 - 2026-08-28
+
+### Added
+
+- `-r`/`--remove` removes current-only keys and their associated comments from
+  merged output, while the default merge remains non-destructive.
+- Argument-free short options can be combined, for example `-ri` is equivalent
+  to `-r -i`.
+
 ## 0.4.0 - 2026-08-25
 
 ### Added

@@ -22,7 +22,7 @@
 #endif
 
 #ifndef ENVDIFF_VERSION
-#define ENVDIFF_VERSION "0.4.0"
+#define ENVDIFF_VERSION "0.5.0"
 #endif
 
 typedef struct {
@@ -155,6 +155,19 @@ static void strings_insert_move(Strings *target, size_t index, Strings *inserted
     target->length += inserted->length;
     free(inserted->items);
     *inserted = (Strings){0};
+}
+
+static void strings_erase(Strings *strings, size_t start, size_t count)
+{
+    for (size_t index = start; index < start + count; index++) {
+        free(strings->items[index]);
+    }
+    memmove(
+        strings->items + start,
+        strings->items + start + count,
+        (strings->length - start - count) * sizeof(*strings->items)
+    );
+    strings->length -= count;
 }
 
 static void entries_push(Entries *entries, Entry entry)
@@ -562,6 +575,35 @@ static size_t preceding_comment_start(const Strings *lines, size_t key_index)
     return start;
 }
 
+static bool remove_current_only_entries(
+    const Entries *example_entries,
+    Strings *current_lines
+)
+{
+    bool changed = false;
+    size_t index = current_lines->length;
+
+    while (index > 0) {
+        index--;
+        char *key = env_key(current_lines->items[index]);
+        if (key == NULL) {
+            continue;
+        }
+        bool current_only = entry_index(example_entries, key) < 0;
+        free(key);
+        if (!current_only) {
+            continue;
+        }
+
+        size_t block_start = preceding_comment_start(current_lines, index);
+        strings_erase(current_lines, block_start, index - block_start + 1);
+        index = block_start;
+        changed = true;
+    }
+
+    return changed;
+}
+
 static void merge_env(
     const Entries *entries,
     Strings *current,
@@ -872,7 +914,7 @@ static bool write_atomic(
 static void usage(FILE *stream)
 {
     fputs(
-        "Usage: envdiff [-c] [-f] "
+        "Usage: envdiff [-c] [-f] [-r] "
         "[-i | -o FILE] <example.env> <current.env>\n",
         stream
     );
@@ -882,6 +924,7 @@ static void usage(FILE *stream)
     fputs("  -o, --output FILE  Atomically write the result to FILE\n", stream);
     fputs("  -i, --in-place     Atomically update the current file\n", stream);
     fputs("  -c, --check        Show the structural difference without writing files\n", stream);
+    fputs("  -r, --remove       Remove keys absent from the example during merge\n", stream);
     fputs("  -f, --force        Allow 'example' in the current file name\n", stream);
     fputs("  -h, --help         Show this help\n", stream);
     fputs("  -V, --version      Show the version\n", stream);
@@ -891,6 +934,7 @@ int main(int argc, char **argv)
 {
     bool check = false;
     bool force = false;
+    bool remove_extra = false;
     bool in_place = false;
     bool parse_options = true;
     const char *output_path = NULL;
@@ -906,6 +950,9 @@ int main(int argc, char **argv)
         } else if (parse_options
             && (strcmp(argv[index], "-f") == 0 || strcmp(argv[index], "--force") == 0)) {
             force = true;
+        } else if (parse_options
+            && (strcmp(argv[index], "-r") == 0 || strcmp(argv[index], "--remove") == 0)) {
+            remove_extra = true;
         } else if (parse_options
             && (strcmp(argv[index], "-i") == 0
                 || strcmp(argv[index], "--in-place") == 0)) {
@@ -944,6 +991,34 @@ int main(int argc, char **argv)
             && (strcmp(argv[index], "--help") == 0 || strcmp(argv[index], "-h") == 0)) {
             usage(stdout);
             return 0;
+        } else if (parse_options && argv[index][0] == '-'
+            && argv[index][1] != '\0' && argv[index][1] != '-') {
+            for (const char *option = argv[index] + 1; *option != '\0'; option++) {
+                switch (*option) {
+                    case 'c':
+                        check = true;
+                        break;
+                    case 'f':
+                        force = true;
+                        break;
+                    case 'r':
+                        remove_extra = true;
+                        break;
+                    case 'i':
+                        in_place = true;
+                        break;
+                    case 'h':
+                        usage(stdout);
+                        return 0;
+                    case 'V':
+                        printf("envdiff %s\n", ENVDIFF_VERSION);
+                        return 0;
+                    default:
+                        fprintf(stderr, "envdiff: unknown option: -%c\n", *option);
+                        usage(stderr);
+                        return 2;
+                }
+            }
         } else if (parse_options && argv[index][0] == '-') {
             fprintf(stderr, "envdiff: unknown option: %s\n", argv[index]);
             usage(stderr);
@@ -1054,6 +1129,8 @@ int main(int argc, char **argv)
 
     size_t added_keys = 0;
     size_t added_comments = 0;
+    bool removed_entries = remove_extra
+        && remove_current_only_entries(&example_entries, &current_lines);
     merge_env(&example_entries, &current_lines, &added_keys, &added_comments);
 
     int newline_style = current_newline != 0 ? current_newline : example_newline;
@@ -1087,7 +1164,7 @@ int main(int argc, char **argv)
         bool output_exists = false;
         if (!read_file_info_if_exists(output_path, &output_info, &output_exists)) {
             result = 2;
-        } else if ((added_keys != 0 || added_comments != 0
+        } else if ((added_keys != 0 || added_comments != 0 || removed_entries
                 || !output_exists || !same_file(&output_info, &current_info))
             && !write_atomic(
                 output_path,

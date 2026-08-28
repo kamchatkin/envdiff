@@ -16,7 +16,7 @@ check_error="$test_dir/check.err"
 expected_check="$test_dir/expected-check.out"
 
 version="$(./envdiff --version)"
-if [ "$version" != 'envdiff 0.4.0' ]; then
+if [ "$version" != 'envdiff 0.5.0' ]; then
     echo "unexpected version: $version" >&2
     exit 1
 fi
@@ -134,6 +134,34 @@ printf '%s\n' \
 cmp "$expected_check" "$check_output"
 if [ -s "$check_error" ]; then
     echo 'current-only check wrote an unexpected diagnostic' >&2
+    exit 1
+fi
+
+./envdiff "$example" "$current" > "$filtered"
+cmp "$current" "$filtered"
+
+./envdiff -f "$example" "$current" > "$filtered"
+cmp "$current" "$filtered"
+
+./envdiff -r "$example" "$current" > "$filtered"
+cmp "$expected" "$filtered"
+if ! grep -F 'LEGACY_TOKEN=remove-this-secret' "$current" >/dev/null; then
+    echo 'remove filter mode modified the current file' >&2
+    exit 1
+fi
+
+./envdiff "$example" "$current" -ri
+cmp "$expected" "$current"
+
+if ./envdiff --check "$example" "$current" > "$check_output" 2> "$check_error"; then
+    :
+else
+    status=$?
+    echo "envdiff --check after remove merge returned unexpected status $status" >&2
+    exit 1
+fi
+if [ -s "$check_output" ] || [ -s "$check_error" ]; then
+    echo 'envdiff --check found changes after remove merge' >&2
     exit 1
 fi
 
